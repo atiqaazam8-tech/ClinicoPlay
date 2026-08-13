@@ -8,6 +8,8 @@ html, body {
   background-color: #08040d;
   overflow: hidden;
   font-family: 'Outfit', sans-serif;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* Base unity container filling the screen */
@@ -73,6 +75,8 @@ html, body {
   opacity: 0;
   transition: opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1);
   display: block;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* Show canvas cleanly when loaded */
