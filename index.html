@@ -20,6 +20,10 @@
           <div id="unity-progress-bar-full"></div>
         </div>
         <div id="unity-loading-text">Preparing assets...</div>
+        <div id="unity-error-box" style="display:none;margin-top:16px;">
+          <div id="unity-error-message" style="font-size:12px;color:#fca5a5;margin-bottom:12px;text-align:center;"></div>
+          <button id="unity-retry-btn" onclick="location.reload()" style="background:linear-gradient(135deg,#a855f7,#6366f1);color:#fff;border:none;border-radius:12px;padding:10px 24px;font-size:13px;font-weight:600;cursor:pointer;width:100%;letter-spacing:0.05em;">Retry</button>
+        </div>
       </div>
       <div id="unity-warning"> </div>
       <div id="unity-footer">
@@ -118,10 +122,36 @@
       script.src = loaderUrl;
       var myUnityInstance = null;
 
+      // Friendly error display — avoids browser alert() which causes "Script error." on cross-origin builds
+      function showLoadError(msg) {
+        var errorBox = document.getElementById("unity-error-box");
+        var errorMsg = document.getElementById("unity-error-message");
+        var statusText = document.querySelector("#unity-loading-text");
+        if (errorMsg) errorMsg.innerText = msg || "Failed to load. Please check your connection and try again.";
+        if (errorBox) errorBox.style.display = "block";
+        if (statusText) statusText.style.display = "none";
+        document.getElementById("unity-progress-bar-empty").style.display = "none";
+        document.getElementById("unity-progress-percent").style.display = "none";
+        loadingBar.style.opacity = 1;
+        loadingBar.style.display = "flex";
+        console.error("[Unity Load Error]", msg);
+      }
+
+      // Intercept global script errors so Unity's cross-origin "Script error." alert never fires
+      window.onerror = function(message, source, lineno, colno, error) {
+        // Only intercept Unity's own error handler (avoid masking real JS errors)
+        if (message === "Script error." || (source && source.indexOf(loaderUrl) !== -1)) {
+          showLoadError("A script error occurred loading the game. Try refreshing or use a different browser.");
+          return true; // Suppress the alert
+        }
+        return false;
+      };
+
+      script.onerror = function() {
+        showLoadError("Could not download game files. Check your internet connection and try again.");
+      };
+
       script.onload = () => {
-        // Cap the resolution at 2x pixel ratio for high-DPI screens
-        const pixelRatio = Math.min(window.devicePixelRatio, 2);
-        
         createUnityInstance(canvas, config, (progress) => {
           var percent = Math.round(progress * 100);
           progressBarFull.style.width = percent + "%";
@@ -135,7 +165,7 @@
           } else if (progress < 0.8) {
             statusText.innerText = "Compiling WebGL code...";
           } else {
-            statusText.innerText = "Launching Quiz Game...";
+            statusText.innerText = "Launching ClinicopPlay...";
           }
         }).then((unityInstance) => {
           myUnityInstance = unityInstance;
@@ -160,15 +190,48 @@
             }
           };
         }).catch((message) => {
-          alert(message);
+          // Never call alert() — show the error in our custom UI instead
+          showLoadError(message);
         });
       };
-document.body.appendChild(script);
+      document.body.appendChild(script);
+
+      // Detect very old or unsupported browsers early
+      (function() {
+        var ua = navigator.userAgent || "";
+        // Warn if Android 4.x or very old iOS
+        var isOldAndroid = /Android [1-4]\./.test(ua);
+        var isOldIOS = /OS [1-9]_/.test(ua) && /iPhone|iPad|iPod/.test(ua);
+        if (isOldAndroid || isOldIOS) {
+          showLoadError("Your device browser may be too old to run this game. Please update your browser or try Chrome.");
+        }
+      })();
 
       // --- FIREBASE BRIDGE FUNCTIONS ---
+
+      // Helper: retry a Firebase async call up to `maxRetries` times on network errors
+      async function retryAsync(fn, maxRetries) {
+        var retries = 0;
+        while (true) {
+          try {
+            return await fn();
+          } catch (err) {
+            var isNetworkError = err.code === 'auth/network-request-failed' ||
+                                 (err.message && err.message.toLowerCase().indexOf('network') !== -1);
+            if (isNetworkError && retries < maxRetries) {
+              retries++;
+              console.warn('[Firebase] Network error, retrying (' + retries + '/' + maxRetries + ')...');
+              await new Promise(function(r) { setTimeout(r, 2000 * retries); });
+            } else {
+              throw err;
+            }
+          }
+        }
+      }
+
       window.firebaseRegisterUser = async (email, password, obj, cb, fb) => {
           try {
-              await firebase.auth().createUserWithEmailAndPassword(email, password);
+              await retryAsync(() => firebase.auth().createUserWithEmailAndPassword(email, password), 2);
               myUnityInstance.SendMessage(obj, cb, "Account created successfully!");
           } catch (error) {
               myUnityInstance.SendMessage(obj, fb, error.message);
@@ -177,7 +240,7 @@ document.body.appendChild(script);
 
       window.firebaseLoginUser = async (email, password, obj, cb, fb) => {
           try {
-              await firebase.auth().signInWithEmailAndPassword(email, password);
+              await retryAsync(() => firebase.auth().signInWithEmailAndPassword(email, password), 2);
               myUnityInstance.SendMessage(obj, cb, "Logged in successfully!");
           } catch (error) {
               myUnityInstance.SendMessage(obj, fb, error.message);

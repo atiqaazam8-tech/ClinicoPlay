@@ -31,12 +31,21 @@ html, body {
 }
 
 /* Animated Background Orbs */
+/* On mobile devices, skip expensive GPU blur to prevent rendering glitches */
 .bg-orb {
   position: absolute;
   border-radius: 50%;
-  filter: blur(80px);
   z-index: 0;
-  animation: floatOrb 20s infinite ease-in-out alternate;
+  /* No blur/animation on mobile by default — added back via @media below */
+  opacity: 0.2;
+}
+
+@media (min-width: 768px) {
+  .bg-orb {
+    filter: blur(80px);
+    opacity: 1;
+    animation: floatOrb 20s infinite ease-in-out alternate;
+  }
 }
 
 .orb-1 {
@@ -82,6 +91,27 @@ html, body {
 /* Show canvas cleanly when loaded */
 #unity-container.unity-loaded #unity-canvas {
   opacity: 1;
+}
+
+/* Reduce motion for accessibility and low-end devices */
+@media (prefers-reduced-motion: reduce) {
+  .bg-orb {
+    animation: none !important;
+  }
+  #unity-progress-bar-full::after {
+    animation: none !important;
+  }
+  #unity-loading-text {
+    animation: none !important;
+    opacity: 1 !important;
+  }
+}
+
+/* On very small/old screens, hide orbs entirely to save GPU memory */
+@media (max-width: 400px) {
+  .bg-orb {
+    display: none;
+  }
 }
 
 /* Centered glassmorphic loading screen */
