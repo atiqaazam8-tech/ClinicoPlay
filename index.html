@@ -36,11 +36,11 @@
       </div>
     </div>
 
-    <!-- Firebase SDKs -->
-    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+    <!-- Firebase SDKs v10 (compat mode = same API as v8, but fixes Chrome storage partitioning
+         issue that caused "missing initial state" on Pixel 7 Pro and other stock Android devices) -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 
     <script>
       // YOUR FIREBASE CONFIGURATION
@@ -247,15 +247,59 @@
           }
       };
 
+      // On page load: some old browsers silently convert signInWithPopup → redirect.
+      // If that happened, Firebase will return the result here when the page reloads.
+      firebase.auth().getRedirectResult().then((result) => {
+          if (result && result.user) {
+              console.log("[Firebase] Completed redirect sign-in:", result.user.email);
+              window._pendingGoogleResult = { success: true, message: "Google login successful!" };
+          }
+      }).catch((error) => {
+          if (error.code && error.code !== 'auth/no-auth-event') {
+              console.warn("[Firebase] Redirect result error:", error.code, error.message);
+              window._pendingGoogleResult = { success: false, message: error.message };
+          }
+      });
+
       window.firebaseGoogleLogin = async (obj, cb, fb) => {
+          // Deliver a pending redirect result if one was stored (browser returned from Google redirect).
+          if (window._pendingGoogleResult) {
+              var r = window._pendingGoogleResult;
+              window._pendingGoogleResult = null;
+              if (r.success) myUnityInstance.SendMessage(obj, cb, r.message);
+              else           myUnityInstance.SendMessage(obj, fb, r.message);
+              return;
+          }
+
           try {
               const provider = new firebase.auth.GoogleAuthProvider();
               await firebase.auth().signInWithPopup(provider);
               myUnityInstance.SendMessage(obj, cb, "Google login successful!");
           } catch (error) {
-              myUnityInstance.SendMessage(obj, fb, error.message);
+              var msg;
+              switch (error.code) {
+                  case 'auth/popup-blocked':
+                      msg = "Google sign-in popup was blocked by your browser. " +
+                            "Please allow popups for this site in your browser settings, " +
+                            "then try again. Alternatively, use email and password to log in.";
+                      break;
+                  case 'auth/popup-closed-by-user':
+                      msg = "Google sign-in was cancelled. Please try again.";
+                      break;
+                  case 'auth/cancelled-popup-request':
+                      msg = "Only one Google sign-in window can be open at a time. Please try again.";
+                      break;
+                  case 'auth/network-request-failed':
+                      msg = "Network error during Google sign-in. Please check your connection and try again.";
+                      break;
+                  default:
+                      msg = error.message;
+              }
+              myUnityInstance.SendMessage(obj, fb, msg);
           }
       };
+
+
 
       window.firebaseResetPassword = async (email, obj, cb, fb) => {
           try {
